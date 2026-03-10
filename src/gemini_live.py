@@ -7,6 +7,8 @@ import asyncio
 import os
 import sys
 import traceback
+import logging
+import datetime
 import pyaudio
 from dotenv import load_dotenv
 from google import genai
@@ -14,6 +16,7 @@ from google.genai import types
 from src.logger import logger
 from src.browser_controller import play_netflix_movie, play_youtube_video
 from src.calendar_controller import get_upcoming_events, create_event
+from src.weather_controller import get_current_weather
 
 load_dotenv()
 
@@ -35,10 +38,12 @@ Tvé hlavní schopnosti:
 - Pouštět filmy a seriály na Netflixu pomocí funkce play_netflix_movie
 - Pouštět videa na YouTube pomocí funkce play_youtube_video
 - Číst a zapisovat události do Google Kalendáře (get_upcoming_events, create_event)
+- Sdílet aktuální informace o počasí podle lokace počítače pomocí get_current_weather (POUZE na vyžádání)
 - Konverzovat s uživatelem v češtině
 
 Když se uživatel ptá na svůj program ("Co mám dnes v plánu?", "Jaké mám schůzky?"), zavolej get_upcoming_events.
 Když chce uživatel naplánovat novou schůzku ("Naplánuj mi zítra v 15:00..."), zavolej create_event. Dbej na to, abys správně převedl čas na formát ISO. Dnešní lokální čas je {datetime.datetime.now().isoformat()}
+Když se uživatel zeptá na počasí ("Jak je venku?", "Jaké je počasí?"), zavolej funkci get_current_weather a pak jej sděl uživateli. POZOR: Počasí oznamuj opravdu jen tehdy, když se na to sám zeptá.
 Když uživatel chce pustit film/seriál na Netflixu, zavolej funkci play_netflix_movie.
 Když uživatel chce pustit video, písničku nebo trailer na YouTube, zavolej funkci play_youtube_video. To platí obecně i pokud nespecifikuje platformu, ale ze zadání je patrné, že jde spíše o video z internetu než dlouhý film.
 Když uživatel řekne "konec", "vypni se" nebo "ukonči se", rozluč se a ukonči konverzaci.
@@ -117,7 +122,16 @@ CREATE_CALENDAR_EVENT_TOOL = {
     }
 }
 
-TOOLS = [{"function_declarations": [PLAY_MOVIE_TOOL, PLAY_YOUTUBE_TOOL, GET_CALENDAR_EVENTS_TOOL, CREATE_CALENDAR_EVENT_TOOL]}]
+GET_WEATHER_TOOL = {
+    "name": "get_current_weather",
+    "description": "Zjistí podle polohy počítače aktuální počasí (teplotu, oblačnost, vítr).",
+    "parameters": {
+        "type": "object",
+        "properties": {}
+    }
+}
+
+TOOLS = [{"function_declarations": [PLAY_MOVIE_TOOL, PLAY_YOUTUBE_TOOL, GET_CALENDAR_EVENTS_TOOL, CREATE_CALENDAR_EVENT_TOOL, GET_WEATHER_TOOL]}]
 
 
 class JeevesLive:
@@ -137,21 +151,10 @@ class JeevesLive:
     async def start(self):
         """Start the Gemini Live session with audio streaming."""
         
-        logger.info("Fetching current weather...")
-        try:
-            from src.weather_controller import get_current_weather
-            weather_report = get_current_weather()
-            logger.info(f"Weather fetched: {weather_report}")
-        except Exception as e:
-            logger.error(f"Could not fetch weather: {e}")
-            weather_report = "Informace o počasí nejsou dostupné."
-            
-        dynamic_instruction = SYSTEM_INSTRUCTION + f"\n\nAktuální informace pro tebe:\n{weather_report}\nPři startu vždy řekni 'Dobrý den, pane.', stručně shrň toto aktuální počasí, a pak čekej na instrukce."
-        
         config = {
             "response_modalities": ["AUDIO"],
             "tools": TOOLS,
-            "system_instruction": dynamic_instruction,
+            "system_instruction": SYSTEM_INSTRUCTION,
             "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": "Fenrir"}}},
         }
         
@@ -356,6 +359,29 @@ class JeevesLive:
                     }
                 except Exception as e:
                     logger.error(f"Calendar error: {e}")
+                    result = {
+                        "success": False,
+                        "message": str(e)
+                    }
+                
+                function_responses.append(
+                    types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response=result
+                    )
+                )
+            elif fc.name == "get_current_weather":
+                logger.info("Executing get_current_weather()...")
+                
+                try:
+                    weather = await asyncio.to_thread(get_current_weather)
+                    result = {
+                        "success": True,
+                        "message": weather
+                    }
+                except Exception as e:
+                    logger.error(f"Weather error: {e}")
                     result = {
                         "success": False,
                         "message": str(e)
