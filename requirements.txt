@@ -11,3 +11,8 @@ google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
 edge-tts
+
+fastapi==0.95.1
+uvicorn==0.34.2
+websockets==16.0
+

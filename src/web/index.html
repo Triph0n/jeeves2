@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="cs">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jeeves - Mission Control</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="glass-container">
+        <header>
+            <h1>Mission Control</h1>
+            <div class="status-indicator">
+                <div class="dot"></div>
+                <span id="connection-status">Připojování...</span>
+            </div>
+        </header>
+
+        <main>
+            <div class="center-stage">
+                <div class="avatar-container" id="avatar-container">
+                    <img src="/static/jeeves_icon.png" alt="Jeeves Avatar" class="avatar">
+                    <div class="glow-ring"></div>
+                </div>
+                <h2 id="jeeves-state">Připraven</h2>
+            </div>
+
+            <div class="transcript-container">
+                <p id="transcript-text">Systém čeká na události.</p>
+            </div>
+
+            <div class="command-input-container">
+                <input type="text" id="command-input"
+                    placeholder="Zadejte příkaz pro Jeevese (např. 'Zavolej Mavis')..." autocomplete="off">
+                <button id="send-btn">Odeslat</button>
+            </div>
+
+            <div class="modules-grid">
+                <div class="module-card">
+                    <h3>Netflix</h3>
+                    <p class="status-text ok">Synchronizováno</p>
+                </div>
+                <div class="module-card">
+                    <h3>Mavis (Sci-Fi)</h3>
+                    <p class="status-text ok">Knihovna aktivní</p>
+                </div>
+                <div class="module-card">
+                    <h3>Kalendář</h3>
+                    <p class="status-text ok">Propojeno s Google</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+
+</html>

@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import subprocess
 import socket
@@ -265,6 +266,131 @@ def play_youtube_video(video_name: str) -> bool:
     except Exception as e:
         logger.exception("Failed to automate YouTube:")
         return False
+
+
+def _ensure_mavis_server() -> bool:
+    """Check if local port 8777 is open. If not, start server.py."""
+    if _is_port_open(8777):
+        logger.info("Mavis server is already running on port 8777.")
+        return True
+
+    logger.info("Starting Mavis server on port 8777...")
+    server_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "knihy-databaze",
+        "server.py"
+    )
+    if not os.path.exists(server_path):
+        logger.error(f"Mavis server not found at: {server_path}")
+        return False
+
+    # Start the server in the background
+    subprocess.Popen(
+        [sys.executable, server_path],
+        cwd=os.path.dirname(server_path),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+    
+    # Wait for the server to spin up
+    for _ in range(10):
+        if _is_port_open(8777):
+            logger.info("Mavis server started successfully.")
+            return True
+        time.sleep(0.5)
+        
+    logger.error("Failed to start Mavis server.")
+    return False
+
+def play_scifi_book(query: str) -> bool:
+    """
+    Opens local Sci-Fi database, searches for query, and plays the first book.
+    """
+    if not _ensure_mavis_server():
+        return False
+
+    if not _ensure_chrome_running():
+        return False
+
+    try:
+        with sync_playwright() as p:
+            logger.info(f"Connecting Playwright to Chrome CDP at 127.0.0.1:{CHROME_DEBUG_PORT}...")
+            browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{CHROME_DEBUG_PORT}")
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            page = context.pages[0] if context.pages else context.new_page()
+
+            logger.info(f"Opening Sci-Fi Library...")
+            page.goto("http://localhost:8777/")
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+            time.sleep(2)
+
+            # Insert search query
+            logger.info(f"Searching for: {query}")
+            search_input = page.locator("#searchInput")
+            search_input.fill(query)
+            search_input.press("Enter")
+            time.sleep(1)
+
+            # Look for the first book card
+            first_book = page.locator(".book-card").first
+            if first_book.count() == 0:
+                logger.warning(f"No books found for query: {query}")
+                return False
+
+            book_title = first_book.locator(".book-title").inner_text()
+            logger.info(f"Found book: {book_title}. Opening reader...")
+            first_book.click()
+            time.sleep(2)
+
+            # Wait for reader and hit play
+            logger.info("Starting TTS playback...")
+            tts_play_btn = page.locator("#ttsPlay")
+            tts_play_btn.wait_for(state="visible", timeout=10000)
+            tts_play_btn.click()
+
+            logger.info(f"Mavis starts reading '{book_title}'.")
+            return True
+
+    except Exception as e:
+        logger.exception("Failed to automate Mavis Sci-Fi Library:")
+        return False
+
+def stop_scifi_book() -> bool:
+    """Stops the TTS reading in the Sci-Fi library if it's open."""
+    if not _is_port_open(CHROME_DEBUG_PORT):
+        logger.info("Chrome is not running, nothing to stop.")
+        return True
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{CHROME_DEBUG_PORT}")
+            if not browser.contexts:
+                return True
+            context = browser.contexts[0]
+            
+            # Find the tab running localhost:8777
+            for page in context.pages:
+                if "localhost:8777" in page.url:
+                    logger.info("Found Sci-Fi Library tab, stopping playback...")
+                    
+                    tts_stop_btn = page.locator("#ttsStop")
+                    if tts_stop_btn.count() > 0 and tts_stop_btn.is_visible():
+                        tts_stop_btn.click()
+                        time.sleep(0.5)
+                        
+                    reader_back_btn = page.locator("#readerBack")
+                    if reader_back_btn.count() > 0 and reader_back_btn.is_visible():
+                        reader_back_btn.click()
+                        
+                    return True
+            
+            logger.info("No active Sci-Fi Library tab found.")
+            return True
+
+    except Exception as e:
+        logger.exception("Failed to stop Mavis reading:")
+        return False
+
 
 
 if __name__ == "__main__":
