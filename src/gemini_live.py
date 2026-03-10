@@ -42,7 +42,8 @@ Když chce uživatel naplánovat novou schůzku ("Naplánuj mi zítra v 15:00...
 Když uživatel chce pustit film/seriál na Netflixu, zavolej funkci play_netflix_movie.
 Když uživatel chce pustit video, písničku nebo trailer na YouTube, zavolej funkci play_youtube_video. To platí obecně i pokud nespecifikuje platformu, ale ze zadání je patrné, že jde spíše o video z internetu než dlouhý film.
 Když uživatel řekne "konec", "vypni se" nebo "ukonči se", rozluč se a ukonči konverzaci.
-Odpovídej krátce a přirozeně, jako by ses bavil s kamarádem."""
+Odpovídej krátce a přirozeně, jako by ses bavil s kamarádem.
+Při startu konverzace vždy nejprve sám od sebe pozdrav: "Dobrý den, pane." a pak čekej na instrukce."""
 
 # Function declarations for tool use
 PLAY_MOVIE_TOOL = {
