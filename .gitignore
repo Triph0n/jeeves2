@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+jeeves_chrome_profile/
+venv/
+env/
+.venv/
+logs/
+*.png
+*.log

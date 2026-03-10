@@ -1,0 +1,9 @@
+playwright
+requests
+python-dotenv
+google-generativeai
+google-genai
+openai-whisper
+SpeechRecognition
+pyaudio
+pygame
