@@ -13,6 +13,7 @@ from google import genai
 from google.genai import types
 from src.logger import logger
 from src.browser_controller import play_netflix_movie, play_youtube_video
+from src.calendar_controller import get_upcoming_events, create_event
 
 load_dotenv()
 
@@ -33,8 +34,11 @@ SYSTEM_INSTRUCTION = """Jsi Jeeves, inteligentní hlasový asistent pro ovládá
 Tvé hlavní schopnosti:
 - Pouštět filmy a seriály na Netflixu pomocí funkce play_netflix_movie
 - Pouštět videa na YouTube pomocí funkce play_youtube_video
+- Číst a zapisovat události do Google Kalendáře (get_upcoming_events, create_event)
 - Konverzovat s uživatelem v češtině
 
+Když se uživatel ptá na svůj program ("Co mám dnes v plánu?", "Jaké mám schůzky?"), zavolej get_upcoming_events.
+Když chce uživatel naplánovat novou schůzku ("Naplánuj mi zítra v 15:00..."), zavolej create_event. Dbej na to, abys správně převedl čas na formát ISO. Dnešní lokální čas je {datetime.datetime.now().isoformat()}
 Když uživatel chce pustit film/seriál na Netflixu, zavolej funkci play_netflix_movie.
 Když uživatel chce pustit video, písničku nebo trailer na YouTube, zavolej funkci play_youtube_video. To platí obecně i pokud nespecifikuje platformu, ale ze zadání je patrné, že jde spíše o video z internetu než dlouhý film.
 Když uživatel řekne "konec", "vypni se" nebo "ukonči se", rozluč se a ukonči konverzaci.
@@ -71,7 +75,48 @@ PLAY_YOUTUBE_TOOL = {
     }
 }
 
-TOOLS = [{"function_declarations": [PLAY_MOVIE_TOOL, PLAY_YOUTUBE_TOOL]}]
+GET_CALENDAR_EVENTS_TOOL = {
+    "name": "get_upcoming_events",
+    "description": "Vrátí seznam nadcházejících událostí z uživatelova kalendáře (dnešní a budoucí schůzky).",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "max_results": {
+                "type": "integer",
+                "description": "Maximální počet nadcházejících událostí, které se mají vrátit (výchozí 10)."
+            }
+        }
+    }
+}
+
+CREATE_CALENDAR_EVENT_TOOL = {
+    "name": "create_event",
+    "description": "Vytvoří novou událost v kalendáři.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "summary": {
+                "type": "string",
+                "description": "Název schůzky nebo události."
+            },
+            "start_time": {
+                "type": "string",
+                "description": "Čas začátku schůzky ve formátu ISO 8601, např. '2026-03-10T15:00:00'."
+            },
+            "end_time": {
+                "type": "string",
+                "description": "Čas konce schůzky ve formátu ISO 8601, např. '2026-03-10T16:00:00'."
+            },
+            "description": {
+                "type": "string",
+                "description": "Volitelný popis schůzky."
+            }
+        },
+        "required": ["summary", "start_time", "end_time"]
+    }
+}
+
+TOOLS = [{"function_declarations": [PLAY_MOVIE_TOOL, PLAY_YOUTUBE_TOOL, GET_CALENDAR_EVENTS_TOOL, CREATE_CALENDAR_EVENT_TOOL]}]
 
 
 class JeevesLive:
@@ -249,6 +294,57 @@ class JeevesLive:
                     result = {
                         "success": False,
                         "message": f"Chyba při spouštění videa: {str(e)}"
+                    }
+                
+                function_responses.append(
+                    types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response=result
+                    )
+                )
+            elif fc.name == "get_upcoming_events":
+                max_results = int(fc.args.get("max_results", 10))
+                logger.info(f"Executing get_upcoming_events({max_results})...")
+                
+                try:
+                    events = await asyncio.to_thread(get_upcoming_events, max_results)
+                    result = {
+                        "success": True,
+                        "events": events
+                    }
+                except Exception as e:
+                    logger.error(f"Calendar error: {e}")
+                    result = {
+                        "success": False,
+                        "message": str(e)
+                    }
+                
+                function_responses.append(
+                    types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response=result
+                    )
+                )
+            elif fc.name == "create_event":
+                summary = fc.args.get("summary", "")
+                start_time = fc.args.get("start_time", "")
+                end_time = fc.args.get("end_time", "")
+                desc = fc.args.get("description", "")
+                logger.info(f"Executing create_event('{summary}', start='{start_time}', end='{end_time}')...")
+                
+                try:
+                    msg = await asyncio.to_thread(create_event, summary, start_time, end_time, desc)
+                    result = {
+                        "success": True,
+                        "message": msg
+                    }
+                except Exception as e:
+                    logger.error(f"Calendar error: {e}")
+                    result = {
+                        "success": False,
+                        "message": str(e)
                     }
                 
                 function_responses.append(

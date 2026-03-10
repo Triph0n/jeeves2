@@ -8,3 +8,5 @@ env/
 logs/
 *.png
 *.log
+credentials.json
+token.json
