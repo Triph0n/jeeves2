@@ -139,6 +139,7 @@ class JeevesLive:
             "response_modalities": ["AUDIO"],
             "tools": TOOLS,
             "system_instruction": SYSTEM_INSTRUCTION,
+            "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": "Fenrir"}}},
         }
         
         logger.info("=" * 60)
