@@ -136,10 +136,22 @@ class JeevesLive:
         
     async def start(self):
         """Start the Gemini Live session with audio streaming."""
+        
+        logger.info("Fetching current weather...")
+        try:
+            from src.weather_controller import get_current_weather
+            weather_report = get_current_weather()
+            logger.info(f"Weather fetched: {weather_report}")
+        except Exception as e:
+            logger.error(f"Could not fetch weather: {e}")
+            weather_report = "Informace o počasí nejsou dostupné."
+            
+        dynamic_instruction = SYSTEM_INSTRUCTION + f"\n\nAktuální informace pro tebe:\n{weather_report}\nPři startu vždy řekni 'Dobrý den, pane.', stručně shrň toto aktuální počasí, a pak čekej na instrukce."
+        
         config = {
             "response_modalities": ["AUDIO"],
             "tools": TOOLS,
-            "system_instruction": SYSTEM_INSTRUCTION,
+            "system_instruction": dynamic_instruction,
             "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": "Fenrir"}}},
         }
         
