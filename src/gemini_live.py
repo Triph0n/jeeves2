@@ -14,9 +14,20 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from src.logger import logger
+import os
+import sys
+import asyncio
+import traceback
+import logging
+import datetime
+import pyaudio
+from google import genai
+from google.genai import types
+
 from src.browser_controller import play_netflix_movie, play_youtube_video
 from src.calendar_controller import get_upcoming_events, create_event
 from src.weather_controller import get_current_weather
+from src.mavis_controller import start_reading, stop_reading
 
 load_dotenv()
 
@@ -39,11 +50,14 @@ Tvé hlavní schopnosti:
 - Pouštět videa na YouTube pomocí funkce play_youtube_video
 - Číst a zapisovat události do Google Kalendáře (get_upcoming_events, create_event)
 - Sdílet aktuální informace o počasí podle lokace počítače pomocí get_current_weather (POUZE na vyžádání)
+- Použít chytrou asistentku 'Mavis' pro předčítání e-knih (sci-fi a fantasy) pomocí funkcí start_mavis_reading a stop_mavis_reading
 - Konverzovat s uživatelem v češtině
 
 Když se uživatel ptá na svůj program ("Co mám dnes v plánu?", "Jaké mám schůzky?"), zavolej get_upcoming_events.
 Když chce uživatel naplánovat novou schůzku ("Naplánuj mi zítra v 15:00..."), zavolej create_event. Dbej na to, abys správně převedl čas na formát ISO. Dnešní lokální čas je {datetime.datetime.now().isoformat()}
 Když se uživatel zeptá na počasí ("Jak je venku?", "Jaké je počasí?"), zavolej funkci get_current_weather a pak jej sděl uživateli. POZOR: Počasí oznamuj opravdu jen tehdy, když se na to sám zeptá.
+Když tě uživatel požádá o čtení sci-fi nebo fantasy knihy (např. "Zavolej Mavis, ať mi přečte Hobita", "Chci číst Foundation od Asimova"), zavolej funkci start_mavis_reading s názvem/čemu hledá. Až ji zavoláš, odpověz "Předávám slovo Mavis" (nebo podobně).
+Když tě uživatel požádá, ať Mavis přestane číst ("Zastav Mavis", "Přestaňte číst"), zavolej funkci stop_mavis_reading a potvrď zastavení.
 Když uživatel chce pustit film/seriál na Netflixu, zavolej funkci play_netflix_movie.
 Když uživatel chce pustit video, písničku nebo trailer na YouTube, zavolej funkci play_youtube_video. To platí obecně i pokud nespecifikuje platformu, ale ze zadání je patrné, že jde spíše o video z internetu než dlouhý film.
 Když uživatel řekne "konec", "vypni se" nebo "ukonči se", rozluč se a ukonči konverzaci.
@@ -131,7 +145,31 @@ GET_WEATHER_TOOL = {
     }
 }
 
-TOOLS = [{"function_declarations": [PLAY_MOVIE_TOOL, PLAY_YOUTUBE_TOOL, GET_CALENDAR_EVENTS_TOOL, CREATE_CALENDAR_EVENT_TOOL, GET_WEATHER_TOOL]}]
+START_MAVIS_TOOL = {
+    "name": "start_mavis_reading",
+    "description": "Zavolá čtečku Mavis, která vyhledá a začne číst e-knihu.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "search_query": {
+                "type": "string",
+                "description": "Jméno knihy nebo autora (např. 'Pán prstenů', 'Asimov')."
+            }
+        },
+        "required": ["search_query"]
+    }
+}
+
+STOP_MAVIS_TOOL = {
+    "name": "stop_mavis_reading",
+    "description": "Zastaví čtečku Mavis, pokud zrovna čte knihu.",
+    "parameters": {
+        "type": "object",
+        "properties": {}
+    }
+}
+
+TOOLS = [{"function_declarations": [PLAY_MOVIE_TOOL, PLAY_YOUTUBE_TOOL, GET_CALENDAR_EVENTS_TOOL, CREATE_CALENDAR_EVENT_TOOL, GET_WEATHER_TOOL, START_MAVIS_TOOL, STOP_MAVIS_TOOL]}]
 
 
 class JeevesLive:
@@ -393,6 +431,40 @@ class JeevesLive:
                         name=fc.name,
                         response=result
                     )
+                )
+            elif fc.name == "start_mavis_reading":
+                query = fc.args.get("search_query", "")
+                logger.info(f"Executing start_mavis_reading('{query}')...")
+                
+                try:
+                    # Run search+start in background to not block Gemini loop
+                    msg = await asyncio.to_thread(start_reading, query)
+                    result = {
+                        "success": True,
+                        "message": msg
+                    }
+                except Exception as e:
+                    logger.error(f"Mavis start error: {e}")
+                    result = {"success": False, "message": str(e)}
+                
+                function_responses.append(
+                    types.FunctionResponse(id=fc.id, name=fc.name, response=result)
+                )
+            elif fc.name == "stop_mavis_reading":
+                logger.info("Executing stop_mavis_reading()...")
+                
+                try:
+                    msg = await asyncio.to_thread(stop_reading)
+                    result = {
+                        "success": True,
+                        "message": msg
+                    }
+                except Exception as e:
+                    logger.error(f"Mavis stop error: {e}")
+                    result = {"success": False, "message": str(e)}
+                
+                function_responses.append(
+                    types.FunctionResponse(id=fc.id, name=fc.name, response=result)
                 )
             else:
                 logger.warning(f"Unknown function: {fc.name}")
