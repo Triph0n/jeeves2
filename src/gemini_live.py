@@ -15,12 +15,19 @@ from google import genai
 from google.genai import types
 from src.logger import logger
 
+class ShutdownException(Exception):
+    """Raised to trigger a clean shutdown of the Gemini Live session."""
+    pass
+
 
 from src.weather_controller import get_current_weather
 from src.calendar_controller import get_upcoming_events, create_event
-from src.browser_controller import play_netflix_movie as play_netflix, play_youtube_video as play_youtube, play_scifi_book, stop_scifi_book
+from src.tasks_controller import add_task, get_tasks
+from src.browser_controller import play_netflix_movie as play_netflix, play_disney_plus_movie as play_disney, play_youtube_video as play_youtube, play_youtube_music, stop_youtube_video, play_scifi_book, stop_scifi_book, play_beatrix_exercises, control_metronome
 from src.library_controller import search_library, get_books_by_author, get_library_stats
-from src.web_server import broadcast_event, command_queue
+from src.transport_controller import search_connections
+from src.web_server import broadcast_event, command_queue, wakeup_event
+from src import cost_tracker
 
 load_dotenv()
 
@@ -40,8 +47,10 @@ SYSTEM_INSTRUCTION = """Jsi Jeeves, inteligentní hlasový asistent pro ovládá
 
 Tvé hlavní schopnosti:
 - Pouštět filmy a seriály na Netflixu pomocí funkce play_netflix_movie
+- Pouštět filmy a seriály na Disney+ pomocí funkce play_disney_plus
 - Pouštět videa na YouTube pomocí funkce play_youtube_video
 - Číst a zapisovat události do Google Kalendáře (get_upcoming_events, create_event)
+- Hledat švýcarská dopravní spojení (vlaky, autobusy) pomocí funkce search_connections
 - Sdílet aktuální informace o počasí podle lokace počítače pomocí get_current_weather (POUZE na vyžádání)
 - Použít chytrou asistentku 'Mavis' pro předčítání e-knih (sci-fi a fantasy) pomocí funkcí play_scifi_book a stop_scifi_book
 - Vyhledávat a analyzovat knihy v lokální databázi Sci-Fi knihovny (funkce search_library, get_books_by_author a get_library_stats)
@@ -49,15 +58,25 @@ Tvé hlavní schopnosti:
 
 Když se uživatel ptá na svůj program ("Co mám dnes v plánu?", "Jaké mám schůzky?"), zavolej get_upcoming_events.
 Když chce uživatel naplánovat novou schůzku ("Naplánuj mi zítra v 15:00..."), zavolej create_event. Dbej na to, abys správně převedl čas na formát ISO. Dnešní lokální čas je {datetime.datetime.now().isoformat()}
-Když se uživatel zeptá na počasí ("Jak je venku?", "Jaké je počasí?"), zavolej funkci get_current_weather a pak jej sděl uživateli. POZOR: Počasí oznamuj opravdu jen tehdy, když se na to sám zeptá.
+Pokud uživatel řekne, že událost patří do rodinného kalendáře (nebo se týká rodiny, dětí, kroužků, prázdnin apod.), nastav parametr calendar_name na 'Rodina'. Jinak ho nech prázdný a událost se zapíše do hlavního kalendáře.
+Když ti uživatel nadiktuje úkol, seznam věcí k nákupu, nebo poznámku, zavolej funkci add_task. Úkoly se ukládají do nástroje Úkoly Google. DŮLEŽITÉ: Při přidávání položek do seznamu NEOPAKUJ zpět, co jsi zapsal, pouze to mlčky udělej a stručně potvrď (např. "Zapsáno.", "Máte to tam.", "Přidáno.").
+Když se uživatel zeptá, jaké má úkoly ("Přečti mi úkoly", "Co mám za úkoly?"), zavolej funkci get_tasks a potom mu z nalezených úkolů rozumně a stručně odvyprávěj, co ho čeká.
+Když se uživatel ptá na vlak nebo autobus ve Švýcarsku ("Kdy mi jede vlak z Curychu do Bernu?", "Najdi spojení do Ženevy"), zavolej funkci search_connections. Parametry jsou 'from_location' a 'to_location'. Můžeš přidat i datum a čas, pokud je uživatel specifikoval.
+Když se uživatel ptá na počasí ("Jak je venku?", "Jaké je počasí?"), zavolej funkci get_current_weather a pak jej sděl uživateli. POZOR: Počasí oznamuj opravdu jen tehdy, když se na to sám zeptá.
 Když tě uživatel požádá o čtení sci-fi nebo fantasy knihy (např. "Zavolej Mavis, ať mi přečte Hobita", "Chci číst Foundation od Asimova"), zavolej funkci play_scifi_book s názvem knihy. Až ji zavoláš, odpověz "Předávám slovo Mavis" (nebo podobně).
 Když tě uživatel požádá, ať Mavis přestane číst ("Zastav Mavis", "Přestaňte číst"), zavolej funkci stop_scifi_book a potvrď zastavení.
-Když se uživatel ptá co máme v databázi, jestli máme nějakou knihu atd., použij search_library.
+Když se uživatel ptá co máme v databázi, jestli máme nějakou knihu atd., použij search_library. Databáze obsahuje knihy v těchto žánrech: 'sci-fi', 'fantasy', 'humor', 'krimi'. Pokud se uživatel ptá speciálně na humor nebo krimi, předej to jako parametr 'genre'.
 Když uživatel chce vědět, co máme od určitého autora, použij get_books_by_author.
 Když se ptá na statistiky knihovny (počet knih atd.), použij get_library_stats.
 Když uživatel chce pustit film/seriál na Netflixu, zavolej funkci play_netflix.
-Když uživatel chce pustit video, písničku nebo trailer na YouTube, zavolej funkci play_youtube. To platí obecně i pokud nespecifikuje platformu, ale ze zadání je patrné, že jde spíše o video z internetu než dlouhý film.
-Když uživatel řekne "konec", "vypni se" nebo "ukonči se", rozluč se a ukonči konverzaci.
+Když uživatel chce pustit film/seriál na Disney+ (Disney Plus), zavolej funkci play_disney_plus.
+Když chce uživatel pustit video, filmový trailer a podobně, zavolej funkci play_youtube.
+Když uživatel řekne "pusť hudbu", "pusť písničku" nebo "zahraj (interpret/skladba)", zavolej funkci play_youtube_music. Používá se přednostně pro čistě hudební přání.
+Když uživatel řekne "zastav video", "pozastav video", "zastavit YouTube", "vypni hudbu" nebo podobně, zavolej funkci stop_youtube (funguje pro YT i YT Music).
+POKUD uživatel řekne pouze "pusť hudbu" nebo "zahraj něco" a ty nevíš co, zeptej se ho nejdříve, co přesně by chtěl slyšet. Teprve po jeho upřesnění použij funkci play_youtube_music.
+Když uživatel řekne "Spusť cvičení pro Beatrix" (případně "Pusť Beatrix cvičení" apod.), zavolej funkci play_beatrix_exercises.
+Když tě uživatel požádá o spuštění nebo ovládání metronomu (např. "Spusť metronom", "Zastav metronom", "Dej metronom na 120", "Zrychli zlehka" atp.), zavolej funkci control_metronome. Pokud uživatel zadá rychlost, předej ji v parametru bpm. Jinak předej jen akci (start, stop).
+Když uživatel řekne "Můžete jít", "konec", "vypni se" nebo "ukonči se", MUSÍŠ zavolat funkci dismiss_jeeves. Nejprve se rozluč (např. "Sbohem, pane.") a IHNED poté zavolej dismiss_jeeves. Tato funkce tě přepne do offline režimu.
 Odpovídej krátce a přirozeně, jako by ses bavil s kamarádem.
 Při startu konverzace vždy nejprve sám od sebe pozdrav: "Dobrý den, pane." a pak čekej na instrukce."""
 
@@ -102,7 +121,7 @@ PLAY_NETFLIX_TOOL = {
 
 PLAY_YOUTUBE_TOOL = {
     "name": "play_youtube",
-    "description": "Spustí video na YouTube. Otevře prohlížeč, vyhledá video podle názvu a pustí ho.",
+    "description": "Spustí obecné video na YouTube. Otevře prohlížeč, vyhledá video podle názvu a pustí ho. Vhodné pro videa, trailery, rozhovory atd.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -112,6 +131,39 @@ PLAY_YOUTUBE_TOOL = {
             }
         },
         "required": ["query"]
+    }
+}
+
+PLAY_YOUTUBE_MUSIC_TOOL = {
+    "name": "play_youtube_music",
+    "description": "Spustí hudbu na YouTube Music. Použij přednostně pro písničky, hudební alba a čistě hudební interprety. Hledá a hraje na rychlé platformě YT Music.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Název písničky nebo jméno interpreta, koho si chce uživatel poslechnout."
+            }
+        },
+        "required": ["query"]
+    }
+}
+
+STOP_YOUTUBE_TOOL = {
+    "name": "stop_youtube",
+    "description": "Zastaví (pozastaví) právě přehrávané video na YouTube.",
+    "parameters": {
+        "type": "object",
+        "properties": {}
+    }
+}
+
+PLAY_BEATRIX_EXERCISES_TOOL = {
+    "name": "play_beatrix_exercises",
+    "description": "Spustí webovou stránku se cviky pro Beatrix na portálu Wibbi. Použij, když uživatel požádá o spuštění nebo zobrazení cvičení pro Beatrix.",
+    "parameters": {
+        "type": "object",
+        "properties": {},
     }
 }
 
@@ -148,7 +200,11 @@ SEARCH_LIBRARY_TOOL = {
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Název knihy nebo klíčové slovo pro vyhledávání."
+                "description": "Název knihy nebo klíčové slovo pro vyhledávání. Lze nechat prázdné, pokud hledáš jen podle žánru."
+            },
+            "genre": {
+                "type": "string",
+                "description": "Volitelný filtr podle žánru. Povolené hodnoty: 'sci-fi', 'fantasy', 'humor', 'krimi', 'all'."
             }
         },
         "required": ["query"]
@@ -195,16 +251,132 @@ GET_CALENDAR_EVENTS_TOOL = {
 
 CREATE_CALENDAR_EVENT_TOOL = {
     "name": "create_event",
-    "description": "Vytvoří novou událost v kalendáři.",
+    "description": "Vytvoří novou událost v kalendáři. Pokud je zadaný calendar_name='Rodina', zapíše do rodinného kalendáře.",
     "parameters": {
         "type": "object",
         "properties": {
             "summary": { "type": "string", "description": "Název schůzky." },
             "start_time": { "type": "string", "description": "Čas začátku." },
             "end_time": { "type": "string", "description": "Čas konce." },
-            "description": { "type": "string", "description": "Volitelný popis." }
+            "description": { "type": "string", "description": "Volitelný popis." },
+            "calendar_name": { "type": "string", "description": "Volitelné: Název cílového kalendáře. Např. 'Rodina' pro rodinný kalendář. Pokud není zadáno, použije se hlavní kalendář." }
         },
         "required": ["summary", "start_time", "end_time"]
+    }
+}
+
+ADD_TASK_TOOL = {
+    "name": "add_task",
+    "description": "Přidá nový úkol nebo poznámku do uživatelova seznamu Úkoly Google (Google Tasks). Použij, když chce uživatel zapsat úkol nebo nákupní seznam.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "title": { "type": "string", "description": "Název úkolu (např. 'Koupit mléko a chleba' nebo 'Zavolat instalatérovi')." },
+            "notes": { "type": "string", "description": "Volitelný detailní popis nebo doplňující informace." }
+        },
+        "required": ["title"]
+    }
+}
+
+GET_TASKS_TOOL = {
+    "name": "get_tasks",
+    "description": "Získá aktivní (nedokončené) úkoly ze seznamu Úkoly Google (Google Tasks). Použij, když chce uživatel přečíst nebo vypsat své aktuální úkoly.",
+    "parameters": {
+        "type": "object",
+        "properties": {}
+    }
+}
+
+DISMISS_JEEVES_TOOL = {
+    "name": "dismiss_jeeves",
+    "description": "Přepne Jeevese do offline režimu. Zavolej tuto funkci, když uživatel řekne 'Můžete jít', 'konec', 'vypni se' nebo 'ukonči se'. Nejprve se rozluč a pak zavolej tuto funkci.",
+    "parameters": {
+        "type": "object",
+        "properties": {}
+    }
+}
+
+PLAY_DISNEY_PLUS_TOOL = {
+    "name": "play_disney_plus",
+    "description": "Spustí film nebo seriál na Disney+. Otevře prohlížeč, vyhledá film a pustí ho.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Název filmu nebo seriálu k přehrání na Disney+, např. 'Encanto', 'Mandalorian'"
+            }
+        },
+        "required": ["query"]
+    }
+}
+
+SEARCH_CONNECTIONS_TOOL = {
+    "name": "search_connections",
+    "description": "Vyhledá švýcarská dopravní spojení (vlaky, autobusy, lodě) mezi dvěma místy.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "from_location": {
+                "type": "string",
+                "description": "Odkud uživatel jede (např. 'Zürich HB', 'Bern', 'Zürich Flughafen')"
+            },
+            "to_location": {
+                "type": "string",
+                "description": "Kam uživatel jede (např. 'Basel SBB', 'Genève')"
+            },
+            "date": {
+                "type": "string",
+                "description": "Volitelné: Datum ve formátu YYYY-MM-DD (např. '2026-03-12')"
+            },
+            "time": {
+                "type": "string",
+                "description": "Volitelné: Čas ve formátu HH:MM (např. '14:30')"
+            }
+        },
+        "required": ["from_location", "to_location"]
+    }
+}
+
+SHOW_MEDIA_TOOL = {
+    "name": "show_media",
+    "description": "Sdílí s uživatelem odkaz nebo obrázek ve vizuálním rozhraní Mission Control. Použij tuto funkci pro sdílení užitečných webových odkazů, map, obrázků nebo doporučení k videím/filmům.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "type": {
+                "type": "string",
+                "description": "Typ obsahu. Může být buď 'link' nebo 'image'."
+            },
+            "url": {
+                "type": "string",
+                "description": "Plná originální URL adresa odkazu nebo obrázku (např. 'https://cs.wikipedia.org/wiki/Kočka_domácí' nebo 'https://example.com/image.jpg')."
+            },
+            "title": {
+                "type": "string",
+                "description": "Krátký srozumitelný název odkazu (např. 'Wikipedie: Kočka', 'Mapa spojení')."
+            }
+        },
+        "required": ["type", "url", "title"]
+    }
+}
+
+CONTROL_METRONOME_TOOL = {
+    "name": "control_metronome",
+    "description": "Ovládá lokální aplikaci metronom. Pomocí této funkce metronom spustíš, zastavíš nebo změníš jeho rychlost (BPM).",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": "Akce, kterou má metronom provést. Hodnoty: 'start' (spustit), 'stop' (zastavit), 'set_bpm' (změnit rychlost bez změny stavu přehrávání)."
+            },
+            "bpm": {
+                "type": "integer",
+                "description": "Volitelné: Cílové tempo v úderech za minutu (BPM). Pokud není zadáno, ponechá se stávající."
+            }
+        },
+        "required": ["action"]
     }
 }
 
@@ -212,14 +384,24 @@ CREATE_CALENDAR_EVENT_TOOL = {
 ALL_TOOLS = [
     GET_CURRENT_WEATHER_TOOL,
     PLAY_NETFLIX_TOOL,
+    PLAY_DISNEY_PLUS_TOOL,
     PLAY_YOUTUBE_TOOL,
+    PLAY_YOUTUBE_MUSIC_TOOL,
+    STOP_YOUTUBE_TOOL,
     CALL_MAVIS_TOOL,
     STOP_MAVIS_TOOL,
     SEARCH_LIBRARY_TOOL,
     GET_AUTHOR_BOOKS_TOOL,
     GET_LIBRARY_STATS_TOOL,
     GET_CALENDAR_EVENTS_TOOL,
-    CREATE_CALENDAR_EVENT_TOOL
+    CREATE_CALENDAR_EVENT_TOOL,
+    ADD_TASK_TOOL,
+    GET_TASKS_TOOL,
+    PLAY_BEATRIX_EXERCISES_TOOL,
+    SEARCH_CONNECTIONS_TOOL,
+    SHOW_MEDIA_TOOL,
+    DISMISS_JEEVES_TOOL,
+    CONTROL_METRONOME_TOOL
 ]
 
 TOOLS = [{"function_declarations": ALL_TOOLS}]
@@ -270,6 +452,7 @@ class JeevesLive:
             ) as session:
                 logger.info("Gemini Live session connected!")
                 self.is_running = True
+                cost_tracker.start_session()
                 
                 # Run three tasks concurrently:
                 # 1. Capture audio from microphone
@@ -284,15 +467,19 @@ class JeevesLive:
         except asyncio.CancelledError:
             logger.info("Session cancelled.")
         except ExceptionGroup as eg:
-            # TaskGroup wraps exceptions in ExceptionGroup
+            logger.error(f"TaskGroup crashed with ExceptionGroup: {eg}")
             for e in eg.exceptions:
-                if not isinstance(e, asyncio.CancelledError):
+                if isinstance(e, ShutdownException):
+                    logger.info("Session cleanly shut down via web command.")
+                elif not isinstance(e, asyncio.CancelledError):
                     logger.error(f"Task error: {e}")
                     traceback.print_exception(type(e), e, e.__traceback__)
         except Exception as e:
-            logger.exception("Gemini Live session error:")
+            logger.error(f"Gemini Live session error: {e}")
+            traceback.print_exception(type(e), e, e.__traceback__)
         finally:
             self.is_running = False
+            cost_tracker.end_session()
             asyncio.create_task(self.set_state("offline", "Spojení přerušeno"))
             self.audio.terminate()
             logger.info("Jeeves Live session ended.")
@@ -318,6 +505,7 @@ class JeevesLive:
                 )
                 
                 # Send raw PCM audio to Gemini
+                cost_tracker.track_input(len(data))
                 await session.send_realtime_input(
                     audio=types.Blob(
                         data=data,
@@ -359,6 +547,15 @@ class JeevesLive:
         try:
             while self.is_running:
                 cmd = await command_queue.get()
+                if cmd == "/shutdown":
+                    logger.info("Received /shutdown command. Terminating session.")
+                    self.is_running = False
+                    await self.set_state("offline", "Vypínám...")
+                    
+                    # Raise a custom exception so TaskGroup cancels its sibling tasks 
+                    # (like the blocking session.receive())
+                    raise ShutdownException()
+
                 logger.info(f"Sending web command to Gemini: {cmd}")
                 await self.set_state("thinking", "Píšu...")
                 # Native fast endpoint:
@@ -372,6 +569,7 @@ class JeevesLive:
             async for response in session.receive():
                 # Handle audio output
                 if response.data is not None:
+                    cost_tracker.track_output(len(response.data))
                     self.audio_out_queue.put_nowait(response.data)
                 
                 # Handle server content (turn completion etc.)
@@ -416,6 +614,30 @@ class JeevesLive:
                         response=result
                     )
                 )
+            elif fc.name == "play_disney_plus":
+                title = fc.args.get("title", fc.args.get("query", ""))
+                logger.info(f"Executing play_disney('{title}')...")
+                
+                try:
+                    success = await asyncio.to_thread(play_disney, title)
+                    result = {
+                        "success": success,
+                        "message": f"Film '{title}' {'byl úspěšně spuštěn' if success else 'se nepodařilo spustit'} na Disney+."
+                    }
+                except Exception as e:
+                    logger.error(f"Browser automation error: {e}")
+                    result = {
+                        "success": False,
+                        "message": f"Chyba při spouštění filmu na Disney+: {str(e)}"
+                    }
+                
+                function_responses.append(
+                    types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response=result
+                    )
+                )
             elif fc.name == "play_youtube_video" or fc.name == "play_youtube": # Handle both old and new name
                 title = fc.args.get("title", fc.args.get("query", ""))
                 logger.info(f"Executing play_youtube('{title}')...")
@@ -440,6 +662,32 @@ class JeevesLive:
                         response=result
                     )
                 )
+            elif fc.name == "search_connections":
+                logger.info("Executing search_connections()...")
+                from_loc = fc.args.get("from_location")
+                to_loc = fc.args.get("to_location")
+                date_str = fc.args.get("date")
+                time_str = fc.args.get("time")
+                
+                try:
+                    result_text = await asyncio.to_thread(search_connections, from_loc, to_loc, date_str, time_str)
+                    function_responses.append(
+                        types.FunctionResponse(
+                            id=fc.id,
+                            name=fc.name,
+                            response={"result": result_text}
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Transport API error: {e}")
+                    function_responses.append(
+                        types.FunctionResponse(
+                            id=fc.id,
+                            name=fc.name,
+                            response={"error": str(e)}
+                        )
+                    )
+
             elif fc.name == "get_upcoming_events":
                 max_results = int(fc.args.get("max_results", 10))
                 logger.info(f"Executing get_upcoming_events({max_results})...")
@@ -469,10 +717,11 @@ class JeevesLive:
                 start_time = fc.args.get("start_time", "")
                 end_time = fc.args.get("end_time", "")
                 desc = fc.args.get("description", "")
-                logger.info(f"Executing create_event('{summary}', start='{start_time}', end='{end_time}')...")
+                cal_name = fc.args.get("calendar_name", "")
+                logger.info(f"Executing create_event('{summary}', start='{start_time}', end='{end_time}', calendar='{cal_name}')...")
                 
                 try:
-                    msg = await asyncio.to_thread(create_event, summary, start_time, end_time, desc)
+                    msg = await asyncio.to_thread(create_event, summary, start_time, end_time, desc, cal_name)
                     result = {
                         "success": True,
                         "message": msg
@@ -482,6 +731,62 @@ class JeevesLive:
                     result = {
                         "success": False,
                         "message": str(e)
+                    }
+                
+                function_responses.append(
+                    types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response=result
+                    )
+                )
+            elif fc.name == "add_task":
+                title = fc.args.get("title", "")
+                notes = fc.args.get("notes", "")
+                logger.info(f"Executing add_task('{title}')...")
+                
+                try:
+                    msg = await asyncio.to_thread(add_task, title, notes)
+                    result = {
+                        "success": True,
+                        "message": msg
+                    }
+                except Exception as e:
+                    logger.error(f"Tasks error: {e}")
+                    result = {
+                        "success": False,
+                        "message": str(e)
+                    }
+                
+                function_responses.append(
+                    types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response=result
+                    )
+                )
+            elif fc.name == "get_tasks":
+                logger.info(f"Executing get_tasks()...")
+                
+                try:
+                    tasks = await asyncio.to_thread(get_tasks)
+                    
+                    if not tasks:
+                        msg = "Nemáte žádné aktivní úkoly."
+                    else:
+                        task_titles = [t.get('title', 'Nepojmenovaný úkol') for t in tasks]
+                        msg = "Zde jsou nalezené úkoly: " + ", ".join(task_titles)
+
+                    result = {
+                        "success": True,
+                        "tasks": tasks,
+                        "message": msg
+                    }
+                except Exception as e:
+                    logger.error(f"Tasks error: {e}")
+                    result = {
+                        "success": False,
+                        "message": f"Chyba při načítání úkolů: {str(e)}"
                     }
                 
                 function_responses.append(
@@ -514,8 +819,8 @@ class JeevesLive:
                         response=result
                     )
                 )
-            elif fc.name == "start_mavis_reading":
-                query = fc.args.get("search_query", "")
+            elif fc.name == "play_scifi_book":
+                query = fc.args.get("query", "")
                 logger.info(f"Executing start_mavis_reading('{query}')...")
                 
                 try:
@@ -532,7 +837,7 @@ class JeevesLive:
                 function_responses.append(
                     types.FunctionResponse(id=fc.id, name=fc.name, response=result)
                 )
-            elif fc.name == "stop_mavis_reading":
+            elif fc.name == "stop_scifi_book":
                 logger.info("Executing stop_mavis_reading()...")
                 
                 try:
@@ -550,9 +855,10 @@ class JeevesLive:
                 )
             elif fc.name == "search_library":
                 query = fc.args.get("query", "")
-                logger.info(f"Executing search_library('{query}')...")
+                genre = fc.args.get("genre", "all")
+                logger.info(f"Executing search_library('{query}', genre='{genre}')...")
                 try:
-                    books = await asyncio.to_thread(search_library, query)
+                    books = await asyncio.to_thread(search_library, query, genre)
                     result = {"success": True, "books": books}
                 except Exception as e:
                     logger.error(f"Library search error: {e}")
@@ -577,6 +883,90 @@ class JeevesLive:
                     logger.error(f"Library stats error: {e}")
                     result = {"success": False, "message": str(e)}
                 function_responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=result))
+            
+            elif fc.name == "control_metronome":
+                action = fc.args.get("action", "start")
+                bpm = fc.args.get("bpm")
+                if bpm is not None:
+                    bpm = int(bpm)
+                logger.info(f"Executing control_metronome(action='{action}', bpm={bpm})...")
+                
+                try:
+                    success = await asyncio.to_thread(control_metronome, action, bpm)
+                    if success:
+                        result = {"success": True, "message": f"Metronom úspěšně provedl akci: {action}."}
+                    else:
+                        result = {"success": False, "message": "Při ovládání metronomu došlo k chybě."}
+                except Exception as e:
+                    logger.error(f"Metronome error: {e}")
+                    result = {"success": False, "message": str(e)}
+                
+                function_responses.append(
+                    types.FunctionResponse(id=fc.id, name=fc.name, response=result)
+                )
+            elif fc.name == "play_youtube_music":
+                query = fc.args.get("query", "")
+                logger.info(f"Executing play_youtube_music('{query}')...")
+                try:
+                    success = await asyncio.to_thread(play_youtube_music, query)
+                    result = {"success": success, "message": f"Spouštím hudbu '{query}' na YouTube Music." if success else "Nepodařilo se spustit hudbu."}
+                except Exception as e:
+                    logger.error(f"YouTube Music error: {e}")
+                    result = {"success": False, "message": str(e)}
+                function_responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=result))
+            elif fc.name == "stop_youtube":
+                logger.info("Executing stop_youtube()...")
+                try:
+                    success = await asyncio.to_thread(stop_youtube_video)
+                    result = {"success": success, "message": "Video na YouTube bylo pozastaveno." if success else "Nepodařilo se pozastavit video."}
+                except Exception as e:
+                    logger.error(f"YouTube stop error: {e}")
+                    result = {"success": False, "message": str(e)}
+                function_responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=result))
+            
+            elif fc.name == "play_beatrix_exercises":
+                logger.info("Executing play_beatrix_exercises()...")
+                try:
+                    success = await asyncio.to_thread(play_beatrix_exercises)
+                    result = {"success": success, "message": f"Pokus o spuštění cvičení pro Beatrix {'byl úspěšný' if success else 'se nezdařil'}."}
+                except Exception as e:
+                    logger.error(f"Beatrix exercises play error: {e}")
+                    result = {"success": False, "error": str(e)}
+                function_responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=result))
+
+            elif fc.name == "show_media":
+                media_type = fc.args.get("type", "link")
+                url = fc.args.get("url", "")
+                title = fc.args.get("title", "")
+                logger.info(f"Executing show_media(type='{media_type}', url='{url}', title='{title}')...")
+                try:
+                    await broadcast_event("media_content", {"mediaType": media_type, "url": url, "title": title})
+                    result = {"success": True, "message": "Obsah byl úspěšně nasdílen do Mission Control."}
+                except Exception as e:
+                    logger.error(f"Show media error: {e}")
+                    result = {"success": False, "error": str(e)}
+                function_responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=result))
+
+            elif fc.name == "dismiss_jeeves":
+                logger.info("Executing dismiss_jeeves() — going offline...")
+                function_responses.append(
+                    types.FunctionResponse(
+                        id=fc.id,
+                        name=fc.name,
+                        response={"success": True, "message": "Jeeves odchází do offline režimu."}
+                    )
+                )
+                # Send tool response first, then shut down
+                if function_responses:
+                    await session.send_tool_response(function_responses=function_responses)
+                    logger.info("Tool response sent. Shutting down session...")
+                # Give Gemini a moment to finish any audio farewell
+                await asyncio.sleep(2)
+                self.is_running = False
+                await broadcast_event("jeeves_dismissed", {})
+                await self.set_state("offline", "Jeeves odešel. Klikněte na 'Zavolat Jeevese' pro obnovení.")
+                raise ShutdownException()
+
             else:
                 logger.warning(f"Unknown function: {fc.name}")
                 function_responses.append(
@@ -593,9 +983,16 @@ class JeevesLive:
 
 
 async def main():
-    """Entry point for Jeeves Live."""
-    jeeves = JeevesLive()
-    await jeeves.start()
+    """Entry point for Jeeves Live — loops to allow reconnection after dismiss."""
+    while True:
+        jeeves = JeevesLive()
+        await jeeves.start()
+        
+        # After session ends (dismissed or error), wait for wakeup signal
+        logger.info("Jeeves is offline. Waiting for wakeup signal...")
+        wakeup_event.clear()
+        await wakeup_event.wait()
+        logger.info("Wakeup signal received! Starting new session...")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,22 @@ from src.logger import logger
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
+# Friendly name -> calendar ID mapping
+CALENDAR_ALIASES = {
+    'rodina': 'family14259236500433336005@group.calendar.google.com',
+}
+
+def resolve_calendar_id(calendar_name: str = "") -> str:
+    """Resolves a friendly calendar name to its Google ID.
+    Returns 'primary' when no name is given."""
+    if not calendar_name:
+        return 'primary'
+    key = calendar_name.strip().lower()
+    if key in CALENDAR_ALIASES:
+        return CALENDAR_ALIASES[key]
+    # If unknown, assume it's already an ID
+    return calendar_name
+
 def get_calendar_service():
     """Shows basic usage of the Google Calendar API.
     Prints the start and name of the next 10 events on the user's calendar.
@@ -74,22 +90,25 @@ def get_upcoming_events(max_results=10):
         logger.error(f"Error reading calendar: {e}")
         return f"Chyba při čtení kalendáře: {e}"
 
-def create_event(summary: str, start_time: str, end_time: str, description: str = ""):
+def create_event(summary: str, start_time: str, end_time: str, description: str = "", calendar_name: str = ""):
     """
-    Creates an event in the primary Google Calendar.
+    Creates an event in Google Calendar.
+    If calendar_name is given (e.g. 'Rodina'), writes to that calendar.
+    Otherwise writes to the primary calendar.
     start_time and end_time should be ISO 8601 strings (e.g. '2026-03-10T10:00:00+01:00').
-    If timezone is omitted, it will assume local timezone or UTC.
     """
     service = get_calendar_service()
     if not service:
         return "Nelze se připojit k Google Kalendáři. Zkontrolujte přihlašovací údaje."
+
+    cal_id = resolve_calendar_id(calendar_name)
 
     event = {
       'summary': summary,
       'description': description,
       'start': {
         'dateTime': start_time,
-        'timeZone': 'Europe/Prague', # Assuming typical timezone for the user based on Czech language
+        'timeZone': 'Europe/Prague',
       },
       'end': {
         'dateTime': end_time,
@@ -98,9 +117,10 @@ def create_event(summary: str, start_time: str, end_time: str, description: str 
     }
 
     try:
-        logger.info(f"Vytvářím událost: {summary} v čase {start_time}")
-        event = service.events().insert(calendarId='primary', body=event).execute()
-        return f"Událost '{summary}' byla úspěšně vytvořena. Odkaz: {event.get('htmlLink')}"
+        cal_label = calendar_name if calendar_name else 'primary'
+        logger.info(f"Vytvářím událost: {summary} v čase {start_time} (kalendář: {cal_label})")
+        event = service.events().insert(calendarId=cal_id, body=event).execute()
+        return f"Událost '{summary}' byla úspěšně vytvořena v kalendáři '{cal_label}'. Odkaz: {event.get('htmlLink')}"
     except Exception as e:
         logger.error(f"Error creating calendar event: {e}")
         traceback.print_exc()

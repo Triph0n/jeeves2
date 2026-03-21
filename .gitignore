@@ -10,3 +10,11 @@ logs/
 *.log
 credentials.json
 token.json
+node_modules/
+tasks_token.json
+package-lock.json
+Jeeves_Start.vbs
+data/
+old_*.html
+old_*.js
+old_*.css

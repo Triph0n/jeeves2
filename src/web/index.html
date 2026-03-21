@@ -1,60 +1,292 @@
 <!DOCTYPE html>
-<html lang="cs">
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jeeves - Mission Control</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Jeeves - Virtual Household Management</title>
+<!-- Google Fonts: Inter and a Serif font for the "Jeeves" aesthetic -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;family=Playfair+Display:ital,wght@0,400;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols for UI Icons -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<!-- Tailwind CSS v3 CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              gold: '#c9a84c', // Updated to requested hex
+              navy: '#0f1117',
+              charcoal: '#1a1d29',
+              emerald: '#10b981',
+            },
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            serif: ['Playfair Display', 'serif'],
+          },
+          borderRadius: {
+            'custom': '8px',
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="custom-layout">
+    body {
+      background: radial-gradient(circle at center, #1a1d29 0%, #0f1117 100%);
+      color: #ffffff;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .glass-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+    }
+    .nav-rail {
+      width: 64px;
+      border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    /* Hide scrollbar for Chrome, Safari and Opera */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    /* Hide scrollbar for IE, Edge and Firefox */
+    .no-scrollbar {
+      -ms-overflow-style: none;  /* IE and Edge */
+      scrollbar-width: none;  /* Firefox */
+    }
+  </style>
+<style data-purpose="animations">
+    @keyframes pulse-ring {
+      0% { transform: scale(0.8); opacity: 0.5; }
+      50% { transform: scale(1.2); opacity: 0.2; }
+      100% { transform: scale(0.8); opacity: 0.5; }
+    }
+    @keyframes orb-glow {
+      0%, 100% { box-shadow: 0 0 20px rgba(201, 168, 76, 0.2), 0 0 40px rgba(201, 168, 76, 0.1); }
+      50% { box-shadow: 0 0 40px rgba(201, 168, 76, 0.4), 0 0 80px rgba(201, 168, 76, 0.2); }
+    }
+    .voice-orb {
+      width: 120px;
+      height: 120px;
+      background: radial-gradient(circle, #c9a84c 0%, #8a6d2b 100%);
+      border-radius: 50%;
+      position: relative;
+      animation: orb-glow 4s infinite ease-in-out;
+    }
+    .orb-ring {
+      position: absolute;
+      top: -20px;
+      left: -20px;
+      right: -20px;
+      bottom: -20px;
+      border: 2px solid rgba(201, 168, 76, 0.3);
+      border-radius: 50%;
+      animation: pulse-ring 3s infinite ease-in-out;
+    }
+    .orb-ring-2 {
+      animation-delay: 1.5s;
+    }
+  </style>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
-
-<body>
-    <div class="glass-container">
-        <header>
-            <h1>Mission Control</h1>
-            <div class="status-indicator">
-                <div class="dot"></div>
-                <span id="connection-status">Připojování...</span>
+<body class="flex flex-row font-sans">
+<!-- BEGIN: Left Nav Rail -->
+<aside class="nav-rail flex flex-col items-center py-8 space-y-12 bg-[#0a0c12] z-50">
+<div class="w-10 h-10 rounded-full border border-brand-gold flex items-center justify-center" data-purpose="logo">
+<span class="font-serif text-brand-gold text-xl italic">J</span>
+</div>
+<nav class="flex flex-col space-y-8 text-gray-400">
+<button class="text-brand-gold" title="Dashboard">
+<span class="material-symbols-outlined">dashboard</span>
+</button>
+<button class="hover:text-white transition-colors" title="Activity">
+<span class="material-symbols-outlined">bolt</span>
+</button>
+<button class="hover:text-white transition-colors" title="Media">
+<span class="material-symbols-outlined">play_circle</span>
+</button>
+<button class="hover:text-white transition-colors" title="Settings">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</nav>
+</aside>
+<!-- END: Left Nav Rail -->
+<!-- Main Workspace -->
+<main class="flex-1 flex flex-col h-full relative px-6 py-8 mx-auto w-full max-w-[1200px] overflow-auto no-scrollbar">
+        <!-- BEGIN: Top Header Section -->
+        <header class="flex justify-between items-start mb-6">
+          <div data-purpose="brand-title">
+            <h1 class="font-serif text-3xl text-brand-gold italic">Jeeves</h1>
+            <p class="text-[10px] tracking-widest text-gray-400 uppercase mt-1">Virtual Household Management</p>
+          </div>
+          <div class="text-right" data-purpose="system-info">
+            <div class="flex items-center justify-end space-x-2 mt-2 status-indicator">
+              <div class="w-2 h-2 rounded-full bg-brand-emerald animate-pulse dot"></div>
+              <span id="connection-status" class="text-[10px] uppercase tracking-tighter text-brand-emerald font-semibold">Connecting...</span>
+              <button id="shutdown-btn" class="ml-2 text-[10px] p-1 border border-brand-emerald/30 rounded text-brand-emerald hover:bg-brand-emerald/20 uppercase tracking-tighter transition-colors">Shutdown</button>
             </div>
+          </div>
         </header>
+        
+        <!-- CENTER: Hero & Calendar row -->
+        <section class="glass-card p-6 mb-6 flex flex-row gap-6 items-stretch">
 
-        <main>
-            <div class="center-stage">
-                <div class="avatar-container" id="avatar-container">
-                    <img src="/static/jeeves_icon.png" alt="Jeeves Avatar" class="avatar">
-                    <div class="glow-ring"></div>
+          <!-- LEFT: Jeeves Orb + Interaction -->
+          <div class="flex flex-col items-center justify-center gap-4 flex-shrink-0" style="min-width:220px;">
+            <h2 id="jeeves-state" class="font-serif text-2xl text-brand-gold italic text-center leading-tight">Prepared</h2>
+            <div id="avatar-container" class="relative group cursor-pointer" data-purpose="voice-activation-control">
+              <div class="orb-ring glow-ring"></div>
+              <div class="orb-ring orb-ring-2 glow-ring"></div>
+              <div class="voice-orb flex items-center justify-center avatar"></div>
+            </div>
+            <p id="transcript-text" class="text-gray-400 font-light text-center text-xs px-2 h-6">Waiting for events...</p>
+            <div class="w-full flex items-center gap-2">
+              <input type="text" id="command-input" class="flex-1 bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-xs text-white focus:ring-1 focus:ring-brand-gold outline-none" placeholder="Enter command..." autocomplete="off">
+              <button id="send-btn" class="bg-brand-gold/20 hover:bg-brand-gold/40 text-brand-gold px-4 py-1.5 rounded-full text-xs font-semibold transition-colors">Send</button>
+            </div>
+          </div>
+
+          <!-- RIGHT: Daily Multi-Calendar -->
+          <div class="flex-1 flex flex-col" style="min-width:0;">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-[10px] text-gray-400 uppercase tracking-widest">Dnešní den</p>
+              <div id="cal-today-label" class="text-[10px] text-brand-gold font-semibold tracking-wide"></div>
+            </div>
+            <!-- Color legend -->
+            <div class="flex flex-wrap gap-3 mb-2" id="cal-legend">
+              <span class="cal-legend-item" data-cal="me">● Já</span>
+              <span class="cal-legend-item" data-cal="max">● Max</span>
+              <span class="cal-legend-item" data-cal="avi">● Avi</span>
+              <span class="cal-legend-item" data-cal="beatrix">● Beatrix</span>
+              <span class="cal-legend-item" data-cal="ursula">● Ursula</span>
+            </div>
+            <!-- Daily events timeline -->
+            <div id="daily-calendar" class="flex-1 overflow-y-auto no-scrollbar rounded-lg bg-white/3 border border-white/5 p-2" style="max-height: 280px;">
+              <div id="cal-events" class="space-y-1.5">
+                <p class="text-xs text-gray-500 text-center pt-4">Načítám kalendář...</p>
+              </div>
+            </div>
+            <p class="text-[9px] text-gray-600 mt-1 text-right">Pouze pro čtení · Google Calendar</p>
+          </div>
+        </section>
+
+        <!-- TILE GRID -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        
+          <div class="glass-card p-5">
+            <div class="flex justify-between items-center mb-4">
+              <p class="text-[10px] text-gray-400 uppercase tracking-widest">Calendar &amp; Tasks</p>
+              <button id="refresh-tasks-btn" class="material-symbols-outlined text-brand-gold text-sm hover:scale-110 transition-transform">sync</button>
+            </div>
+            <div id="tasks-list" class="space-y-3 mt-4 pt-2 border-t border-white/5 max-h-[300px] overflow-y-auto no-scrollbar">
+              <p class="text-xs text-gray-400">Loading tasks...</p>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-6">
+            <div class="glass-card p-5" id="media-container" style="display: none;">
+              <div class="flex justify-between items-start mb-4">
+                <p class="text-[10px] text-brand-emerald uppercase tracking-widest">Shared Media</p>
+                <button id="clear-media-btn" class="material-symbols-outlined text-gray-400 hover:text-white text-sm cursor-pointer">close</button>
+              </div>
+              <div id="media-list" class="space-y-3 max-h-[200px] overflow-y-auto no-scrollbar">
+              </div>
+            </div>
+            
+            <details class="vacancies-panel" open>
+                <summary class="vacancies-title">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <span>🎻 Job Vacancies</span>
+                        <button id="refresh-vacancies-btn" class="material-symbols-outlined text-brand-gold text-sm hover:scale-110 transition-transform cursor-pointer">sync</button>
+                    </div>
+                </summary>
+                <div class="vacancies-content">
+                    <div id="vacancies-loading" class="text-[10px] text-gray-400 mb-2" style="display:none;">Loading...</div>
+                    <div id="vacancies-error" class="text-[10px] text-red-500 mb-2" style="display:none;">Error</div>
+                    
+                    <div class="vacancy-source mb-3">
+                        <h4>Muvac</h4>
+                        <ul id="muvac-list" class="tasks-list" style="margin-top: 5px;"></ul>
+                    </div>
+                    <div class="vacancy-source">
+                        <h4>Musikzeitung</h4>
+                        <ul id="musikzeitung-list" class="tasks-list" style="margin-top: 5px;"></ul>
+                    </div>
                 </div>
-                <h2 id="jeeves-state">Připraven</h2>
+            </details>
+          </div>
+
+          <div class="flex flex-col gap-6">
+            <div class="glass-card p-5">
+              <div class="flex justify-between items-center mb-4">
+                <p class="text-[10px] text-gray-400 uppercase tracking-widest">Mavis Library</p>
+                <span class="material-symbols-outlined text-brand-gold text-sm">auto_stories</span>
+              </div>
+              <button id="launch-mavis-btn" class="w-full flex flex-col items-center justify-center gap-2 py-6 rounded-lg bg-brand-gold/10 hover:bg-brand-gold/20 border border-brand-gold/20 hover:border-brand-gold/50 transition-all group cursor-pointer">
+                <span class="material-symbols-outlined text-brand-gold text-4xl group-hover:scale-110 transition-transform">menu_book</span>
+                <span class="text-xs font-semibold text-brand-gold uppercase tracking-widest">Otevřít Knihovnu</span>
+                <span id="mavis-btn-status" class="text-[9px] text-gray-500 uppercase tracking-wider">Sci-Fi · localhost:8777</span>
+              </button>
             </div>
 
-            <div class="transcript-container">
-                <p id="transcript-text">Systém čeká na události.</p>
-            </div>
-
-            <div class="command-input-container">
-                <input type="text" id="command-input"
-                    placeholder="Zadejte příkaz pro Jeevese (např. 'Zavolej Mavis')..." autocomplete="off">
-                <button id="send-btn">Odeslat</button>
-            </div>
-
-            <div class="modules-grid">
-                <div class="module-card">
-                    <h3>Netflix</h3>
-                    <p class="status-text ok">Synchronizováno</p>
+            <div class="glass-card p-5">
+              <p class="text-[10px] text-gray-400 uppercase tracking-widest mb-4">API Usage</p>
+              <div class="grid grid-cols-2 gap-2 text-center mb-3">
+                <div class="bg-white/5 p-2 rounded">
+                   <p id="monthly-cost" class="text-lg font-light text-brand-gold">$0.00</p>
+                   <p id="monthly-czk" class="text-[8px] uppercase tracking-tighter text-gray-500">0.00 Kč</p>
                 </div>
-                <div class="module-card">
-                    <h3>Mavis (Sci-Fi)</h3>
-                    <p class="status-text ok">Knihovna aktivní</p>
+                <div class="bg-white/5 p-2 rounded">
+                   <p id="session-count" class="text-lg font-light text-brand-emerald">0</p>
+                   <p class="text-[8px] uppercase tracking-tighter text-gray-500">Sessions</p>
                 </div>
-                <div class="module-card">
-                    <h3>Kalendář</h3>
-                    <p class="status-text ok">Propojeno s Google</p>
+              </div>
+              <div class="flex justify-between text-[10px] text-gray-400">
+                <span>In: <span id="input-tokens">0</span></span>
+                <span>Out: <span id="output-tokens">0</span></span>
+              </div>
+              <div id="current-session-panel" class="mt-3 bg-brand-emerald/10 border border-brand-emerald/20 rounded p-2 flex justify-between items-center" style="display:none;">
+                <div class="flex items-center space-x-2">
+                  <div class="w-1.5 h-1.5 bg-brand-emerald rounded-full animate-pulse"></div>
+                  <span class="text-[8px] text-brand-emerald font-semibold uppercase">Live</span>
                 </div>
+                <span id="session-duration" class="text-[10px] text-gray-400">0:00</span>
+                <span id="session-cost" class="text-[10px] text-brand-gold">$0.00</span>
+              </div>
+              <details class="mt-3 border-t border-white/5 pt-2 text-[10px] text-gray-400 cursor-pointer">
+                <summary>Recent Sessions</summary>
+                <div id="sessions-list" class="mt-2 space-y-1 max-h-24 overflow-y-auto no-scrollbar"></div>
+              </details>
+              <details id="past-months-section" class="mt-3 border-t border-white/5 pt-2 text-[10px] text-gray-400 cursor-pointer" style="display:none;">
+                <summary>Past Months</summary>
+                <div id="past-months-list" class="mt-2 space-y-1 max-h-24 overflow-y-auto no-scrollbar"></div>
+              </details>
             </div>
+            
+          </div>
+        </div>
         </main>
-    </div>
-    <script src="/static/script.js"></script>
-</body>
-
-</html>
+<!-- Interactive script for voice orb responsiveness -->
+<script data-purpose="orb-interactivity">
+    const orb = document.querySelector('.voice-orb');
+    if(orb) {
+      orb.addEventListener('mousedown', () => {
+        orb.style.transform = 'scale(0.95)';
+        orb.style.filter = 'brightness(1.2)';
+      });
+      orb.addEventListener('mouseup', () => {
+        orb.style.transform = 'scale(1)';
+        orb.style.filter = 'brightness(1)';
+      });
+    }
+  </script>
+  <script src="/static/script.js"></script>
+</body></html>

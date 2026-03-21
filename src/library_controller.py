@@ -25,16 +25,21 @@ def _normalize(s: str) -> str:
     s = re.sub(r'[^\w\s]', '', s)
     return s
 
-def search_library(query: str) -> list[dict]:
-    """Search for books matching the query in title or author."""
+def search_library(query: str = "", genre: str = "all") -> list[dict]:
+    """Search for books matching the query in title or author. Optionally filter by genre."""
     db = _load_db()
     results = []
-    q_norm = _normalize(query)
+    q_norm = _normalize(query) if query else ""
     
     for book in db.get("books", []):
+        # Filter by genre if specified
+        if genre and genre.lower() != "all" and book.get("genre", "").lower() != genre.lower():
+            continue
+            
         t_norm = _normalize(book.get("title", ""))
         a_norm = _normalize(book.get("author", ""))
-        if q_norm in t_norm or q_norm in a_norm:
+        
+        if not query or q_norm in t_norm or q_norm in a_norm:
             results.append({
                 "title": book.get("title"),
                 "author": book.get("author"),
